@@ -1,0 +1,22 @@
+{
+  "prenom": "",
+  "message_accueil": "",
+  "ville": "Paris",
+  "latitude": 48.8566,
+  "longitude": 2.3522,
+  "afficher_meteo": true,
+  "format_24h": true,
+  "animations": true,
+  "couleur_fond_haut": "#16171C",
+  "couleur_fond_bas": "#050506",
+  "ordre_applis": [
+    "com.netflix.ninja",
+    "com.google.android.youtube.tv",
+    "com.disney.disneyplus",
+    "com.amazon.amazonvideo.livingroom",
+    "com.canal.android.canal"
+  ],
+  "applis_masquees": [],
+  "inclure_applis_non_tv": false,
+  "maj_auto": true
+}

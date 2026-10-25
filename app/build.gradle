@@ -1,0 +1,47 @@
+plugins {
+    id 'com.android.application'
+}
+
+// Renseignés automatiquement par GitHub Actions : rien à modifier ici.
+def repo = System.getenv("GITHUB_REPOSITORY") ?: "votre-compte/epure-launcher"
+def run  = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInteger()
+def ks   = System.getenv("KEYSTORE_FILE")
+
+android {
+    namespace 'fr.epure.launcher'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'fr.epure.launcher'
+        minSdk 23
+        targetSdk 34
+        versionCode run
+        versionName "1.0.${run}"
+        buildConfigField "String", "GITHUB_REPO", "\"${repo}\""
+    }
+
+    buildFeatures { buildConfig true }
+
+    signingConfigs {
+        release {
+            if (ks) {
+                storeFile file(ks)
+                storePassword System.getenv("KEYSTORE_PASSWORD")
+                keyAlias "epure"
+                keyPassword System.getenv("KEYSTORE_PASSWORD")
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig ks ? signingConfigs.release : signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
