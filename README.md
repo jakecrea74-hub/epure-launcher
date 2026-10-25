@@ -26,6 +26,8 @@ Appli native (Java + Android pur, aucune bibliothèque).
 | `afficher_meteo`, `format_24h` | true / false |
 | `animations` | true / false (zoom et fondu) |
 | `couleur_fond_haut`, `couleur_fond_bas` | Dégradé du fond |
+| `couleur_ambiance_1`, `couleur_ambiance_2` | Couleurs du fond animé |
+| `sous_titres` | Petit texte sous le nom d'une appli |
 | `ordre_applis` | Applis à placer en premier (noms de paquet) |
 | `applis_masquees` | Applis à cacher (noms de paquet) |
 | `inclure_applis_non_tv` | Afficher aussi les applis non prévues pour TV |

@@ -9,6 +9,8 @@
   "animations": true,
   "couleur_fond_haut": "#16171C",
   "couleur_fond_bas": "#050506",
+  "couleur_ambiance_1": "#1B2A4A",
+  "couleur_ambiance_2": "#2A1838",
   "ordre_applis": [
     "com.netflix.ninja",
     "com.google.android.youtube.tv",
@@ -17,6 +19,9 @@
     "com.canal.android.canal"
   ],
   "applis_masquees": [],
+  "sous_titres": {
+    "com.netflix.ninja": "Films et séries"
+  },
   "inclure_applis_non_tv": false,
   "maj_auto": true
 }

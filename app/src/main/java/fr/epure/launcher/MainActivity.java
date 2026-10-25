@@ -1,10 +1,15 @@
 package fr.epure.launcher;
 
+import android.animation.ArgbEvaluator;
 import android.animation.ObjectAnimator;
+import android.animation.ValueAnimator;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Intent;
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.Rect;
 import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
@@ -20,6 +25,7 @@ import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.animation.DecelerateInterpolator;
+import android.view.animation.LinearInterpolator;
 import android.widget.FrameLayout;
 import android.widget.HorizontalScrollView;
 import android.widget.ImageView;
@@ -29,15 +35,19 @@ import android.widget.TextView;
 import java.text.SimpleDateFormat;
 import java.util.Calendar;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class MainActivity extends Activity {
 
-    private static final int TILE_W = 224, TILE_H = 126;          // dp, format 16:9
-    private static final float FOCUS_SCALE = 1.12f;
+    private static final int TILE_W = 272, TILE_H = 153;          // dp, format 16:9
+    private static final float FOCUS_SCALE = 1.18f;
+    private static final float DIM_ALPHA = 0.55f;                 // applis non sélectionnées
+    private static final float BACKDROP_ALPHA = 0.6f;
     private static final long ANIM_MS = 180;
     private static final long CONFIG_EVERY = 10 * 60_000L;
     private static final long WEATHER_EVERY = 30 * 60_000L;
@@ -52,6 +62,14 @@ public class MainActivity extends Activity {
     private TextView greetingV, dateV, clockV, weatherV;
     private LinearLayout row;
     private HorizontalScrollView scroll;
+    private View ambient, info;
+    private ImageView backdropA, backdropB;
+    private TextView infoTitle, infoCaption;
+    private boolean showingA;
+    private String backdropKey;
+    private ValueAnimator ambientAnim;
+    private GradientDrawable ambientBg;
+    private final Map<String, Bitmap> blurCache = new HashMap<>();
 
     private String appsSig = "";
     private String focusedKey;
@@ -80,6 +98,16 @@ public class MainActivity extends Activity {
         weatherV = findViewById(R.id.weather);
         row = findViewById(R.id.row);
         scroll = findViewById(R.id.row_scroll);
+        ambient = findViewById(R.id.ambient);
+        backdropA = findViewById(R.id.backdrop_a);
+        backdropB = findViewById(R.id.backdrop_b);
+        info = findViewById(R.id.info);
+        infoTitle = findViewById(R.id.info_title);
+        infoCaption = findViewById(R.id.info_caption);
+
+        GradientDrawable scrim = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[]{0x99000000, 0x40000000, 0x66000000, 0xE6000000});
+        findViewById(R.id.scrim).setBackground(scrim);
 
         applyConfig();
         rebuildRow(true);
@@ -95,6 +123,7 @@ public class MainActivity extends Activity {
         super.onResume();
         ui.removeCallbacks(clockTick);
         clockTick.run();
+        startAmbient();
         rebuildRow(false);                         // appli installée / supprimée ?
         long now = SystemClock.elapsedRealtime();
         if (lastConfig == 0 || now - lastConfig > CONFIG_EVERY) fetchConfig(false);
@@ -105,6 +134,7 @@ public class MainActivity extends Activity {
     protected void onPause() {
         super.onPause();
         ui.removeCallbacks(clockTick);
+        if (ambientAnim != null) ambientAnim.cancel();
     }
 
     @Override
@@ -158,10 +188,11 @@ public class MainActivity extends Activity {
     }
 
     private void applyConfig() {
-        GradientDrawable bg = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, new int[]{
+        ambientBg = new GradientDrawable(GradientDrawable.Orientation.TL_BR, new int[]{
                 cfg.color("couleur_fond_haut", 0xFF16171C),
                 cfg.color("couleur_fond_bas", 0xFF050506)});
-        root.setBackground(bg);
+        ambient.setBackground(ambientBg);
+        startAmbient();
         weatherV.setVisibility(cfg.bool("afficher_meteo", true) ? View.VISIBLE : View.GONE);
         updateClock();
     }
@@ -242,35 +273,36 @@ public class MainActivity extends Activity {
 
     private View makeTile(String key, String label, Drawable banner, Drawable icon, String glyph,
                           View.OnClickListener click) {
-        LinearLayout cell = new LinearLayout(this);
-        cell.setOrientation(LinearLayout.VERTICAL);
-        cell.setGravity(Gravity.CENTER_HORIZONTAL);
+        // Cellule focusable : c'est elle qui grossit
+        FrameLayout cell = new FrameLayout(this);
         cell.setTag(key);
         cell.setFocusable(true);
         cell.setClipChildren(false);
         cell.setClipToPadding(false);
+        cell.setAlpha(DIM_ALPHA);
         LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        clp.leftMargin = dp(12);
-        clp.rightMargin = dp(12);
+        clp.leftMargin = dp(10);
+        clp.rightMargin = dp(10);
         cell.setLayoutParams(clp);
 
-        // Carte arrondie
+        // Liseré blanc posé AUTOUR de la vignette (visible même sur une vignette blanche)
+        GradientDrawable border = new GradientDrawable();
+        border.setColor(Color.TRANSPARENT);
+        border.setCornerRadius(dp(19));
+        border.setStroke(dp(3), Color.WHITE);
+        border.setAlpha(0);
+        cell.setForeground(border);
+        cell.setPadding(dp(6), dp(6), dp(6), dp(6));
+
+        // Vignette arrondie
         FrameLayout card = new FrameLayout(this);
         GradientDrawable bg = new GradientDrawable();
         bg.setColor(0xFF1C1C22);
         bg.setCornerRadius(dp(14));
         card.setBackground(bg);
         card.setClipToOutline(true);
-
-        // Liseré blanc (invisible tant que l'appli n'est pas sélectionnée)
-        GradientDrawable border = new GradientDrawable();
-        border.setColor(Color.TRANSPARENT);
-        border.setCornerRadius(dp(14));
-        border.setStroke(dp(3), Color.WHITE);
-        border.setAlpha(0);
-        card.setForeground(border);
-        cell.addView(card, new LinearLayout.LayoutParams(dp(TILE_W), dp(TILE_H)));
+        cell.addView(card, new FrameLayout.LayoutParams(dp(TILE_W), dp(TILE_H)));
 
         if (banner != null) {
             ImageView iv = new ImageView(this);
@@ -282,53 +314,151 @@ public class MainActivity extends Activity {
             ImageView iv = new ImageView(this);
             iv.setScaleType(ImageView.ScaleType.FIT_CENTER);
             iv.setImageDrawable(icon);
-            card.addView(iv, new FrameLayout.LayoutParams(dp(64), dp(64), Gravity.CENTER));
+            card.addView(iv, new FrameLayout.LayoutParams(dp(72), dp(72), Gravity.CENTER));
         } else {
             TextView g = new TextView(this);
             g.setText(glyph);
             g.setTextColor(Color.WHITE);
-            g.setTextSize(TypedValue.COMPLEX_UNIT_SP, 40);
+            g.setTextSize(TypedValue.COMPLEX_UNIT_SP, 44);
             g.setGravity(Gravity.CENTER);
             card.addView(g, new FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         }
 
-        // Nom de l'appli (apparaît en fondu sous la carte sélectionnée)
-        TextView name = new TextView(this);
-        name.setText(label);
-        name.setTextColor(0xFFEDEDF0);
-        name.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
-        name.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
-        name.setSingleLine(true);
-        name.setEllipsize(TextUtils.TruncateAt.END);
-        name.setMaxWidth(dp(TILE_W));
-        name.setAlpha(0f);
-        LinearLayout.LayoutParams nlp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        nlp.topMargin = dp(16);
-        cell.addView(name, nlp);
-
         cell.setOnClickListener(click);
         cell.setOnFocusChangeListener((v, has) -> {
-            if (has) focusedKey = key;
             float s = has ? FOCUS_SCALE : 1f;
-            float a = has ? 1f : 0f;
+            float a = has ? 1f : DIM_ALPHA;
+            float z = has ? dp(20) : 0;
             int ba = has ? 255 : 0;
+            cell.animate().cancel();
             card.animate().cancel();
-            name.animate().cancel();
             if (cfg.animations()) {
                 DecelerateInterpolator ease = new DecelerateInterpolator();
-                card.animate().scaleX(s).scaleY(s).setDuration(ANIM_MS).setInterpolator(ease).start();
-                name.animate().alpha(a).setDuration(ANIM_MS).start();
+                cell.animate().scaleX(s).scaleY(s).alpha(a).setDuration(ANIM_MS).setInterpolator(ease).start();
+                card.animate().translationZ(z).setDuration(ANIM_MS).start();
                 ObjectAnimator.ofInt(border, "alpha", border.getAlpha(), ba).setDuration(ANIM_MS).start();
             } else {
-                card.setScaleX(s);
-                card.setScaleY(s);
-                name.setAlpha(a);
+                cell.setScaleX(s);
+                cell.setScaleY(s);
+                cell.setAlpha(a);
+                card.setTranslationZ(z);
                 border.setAlpha(ba);
+            }
+            if (has) {
+                focusedKey = key;
+                showInfo(key, label);
+                showBackdrop(key, banner);
             }
         });
         return cell;
+    }
+
+    // ---------- Infos de l'appli sélectionnée ----------
+
+    private void showInfo(String key, String label) {
+        String caption = KEY_SETTINGS.equals(key) ? "Animations, mise à jour, paramètres" : caption(key);
+        if (!cfg.animations()) {
+            infoTitle.setText(label);
+            infoCaption.setText(caption);
+            return;
+        }
+        info.animate().cancel();
+        info.animate().alpha(0f).setDuration(90).withEndAction(() -> {
+            infoTitle.setText(label);
+            infoCaption.setText(caption);
+            info.animate().alpha(1f).setDuration(160).start();
+        }).start();
+    }
+
+    private String caption(String pkg) {
+        String c = cfg.inMap("sous_titres", pkg);
+        if (c != null && !c.isEmpty()) return c;
+        switch (pkg) {
+            case "com.netflix.ninja":
+            case "com.disney.disneyplus":
+            case "com.amazon.amazonvideo.livingroom":
+                return "Films et séries";
+            case "com.google.android.youtube.tv":
+                return "Vidéos et chaînes";
+            case "com.canal.android.canal":
+                return "Chaînes, films et sport";
+            case "com.spotify.tv.android":
+                return "Musique et podcasts";
+            default:
+                return "Appuyez sur OK pour ouvrir";
+        }
+    }
+
+    // ---------- Grand visuel flouté ----------
+
+    private void showBackdrop(String key, Drawable banner) {
+        if (key.equals(backdropKey)) return;
+        backdropKey = key;
+        Bitmap bmp = banner == null ? null : blurred(key, banner);
+        ImageView in = showingA ? backdropB : backdropA;
+        ImageView out = showingA ? backdropA : backdropB;
+        showingA = !showingA;
+        in.animate().cancel();
+        out.animate().cancel();
+        in.setImageBitmap(bmp);
+        float target = bmp == null ? 0f : BACKDROP_ALPHA;
+        if (cfg.animations()) {
+            in.setAlpha(0f);
+            in.animate().alpha(target).setDuration(450).start();
+            out.animate().alpha(0f).setDuration(450).start();
+        } else {
+            in.setAlpha(target);
+            out.setAlpha(0f);
+        }
+    }
+
+    /** Flou sans bibliothèque : on réduit l'image à 16x9 puis on l'agrandit en douceur. */
+    private Bitmap blurred(String key, Drawable d) {
+        Bitmap cached = blurCache.get(key);
+        if (cached != null) return cached;
+        try {
+            Bitmap tiny = Bitmap.createBitmap(16, 9, Bitmap.Config.ARGB_8888);
+            Canvas c = new Canvas(tiny);
+            Rect old = d.copyBounds();
+            d.setBounds(0, 0, 16, 9);
+            d.draw(c);
+            d.setBounds(old);
+            Bitmap soft = Bitmap.createScaledBitmap(tiny, 192, 108, true);
+            tiny.recycle();
+            blurCache.put(key, soft);
+            return soft;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    // ---------- Fond animé ----------
+
+    private void startAmbient() {
+        if (ambientBg == null) return;
+        if (ambientAnim != null) ambientAnim.cancel();
+        int top = cfg.color("couleur_fond_haut", 0xFF16171C);
+        int bottom = cfg.color("couleur_fond_bas", 0xFF050506);
+        int moodA = cfg.color("couleur_ambiance_1", 0xFF1B2A4A);
+        int moodB = cfg.color("couleur_ambiance_2", 0xFF2A1838);
+        if (!cfg.animations()) {
+            ambientBg.setColors(new int[]{top, bottom});
+            return;
+        }
+        ArgbEvaluator ev = new ArgbEvaluator();
+        ambientAnim = ValueAnimator.ofFloat(0f, 1f);
+        ambientAnim.setDuration(24_000);
+        ambientAnim.setRepeatCount(ValueAnimator.INFINITE);
+        ambientAnim.setRepeatMode(ValueAnimator.REVERSE);
+        ambientAnim.setInterpolator(new LinearInterpolator());
+        ambientAnim.addUpdateListener(a -> {
+            float t = (float) a.getAnimatedValue();
+            ambientBg.setColors(new int[]{
+                    (int) ev.evaluate(t, top, moodA),
+                    (int) ev.evaluate(t, moodB, bottom)});
+        });
+        ambientAnim.start();
     }
 
     private void launch(String pkg) {
@@ -354,8 +484,8 @@ public class MainActivity extends Activity {
                 .setTitle("Réglages")
                 .setItems(items, (d, which) -> {
                     switch (which) {
-                        case 0: cfg.setAnimationsLocal(!cfg.animations()); break;
-                        case 1: cfg.followFileForAnimations(); break;
+                        case 0: cfg.setAnimationsLocal(!cfg.animations()); startAmbient(); break;
+                        case 1: cfg.followFileForAnimations(); startAmbient(); break;
                         case 2: maybeCheckUpdate(true); break;
                         case 3: fetchConfig(true); break;
                         case 4:

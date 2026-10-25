@@ -65,6 +65,12 @@ final class Config {
         return out;
     }
 
+    /** Lit une valeur texte dans un objet du fichier, ex. "sous_titres": {"com.netflix.ninja": "..."}. */
+    String inMap(String obj, String key) {
+        JSONObject o = json.optJSONObject(obj);
+        return o == null ? null : o.optString(key, null);
+    }
+
     /** Le choix fait sur la TV (menu Réglages) a priorité sur le fichier. */
     boolean animations() {
         if (prefs.contains(KEY_ANIM_LOCAL)) return prefs.getBoolean(KEY_ANIM_LOCAL, true);
